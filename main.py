@@ -53,12 +53,11 @@ def main():
 
 	source_dir = args.directory
 	if not os.path.isdir(source_dir):
+		print (desc)
 		print ("Error: please supply a directory")
 		sys.exit(0)	
 	
 	try:
-		#Todo: Hard Code and remove input.
-		#default_source_dir = "d:\movies"
 		print(desc)		
 		output_file = "movies.html"
 
