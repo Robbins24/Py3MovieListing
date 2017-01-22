@@ -10,14 +10,13 @@ Python 3 based Dir to HTML Movie listing generator (IMDB Details)
 	REQUIRMENTS:
 	- Python 3.5
 	- Active Internet connection 
-	- Ideally each of the movie files needs to be stored in a separate folder.
 	- Naming convention should only include movie title. Modification to the script can be made to adhere to differnet naming standards.
 
 
 	USAGE:
-	- Run python main.py [DIR]
-	- [DIR] should be the directory where the movies are present.
-	- HTML file outputs to the same directory as the script without modification to the current code base.
+	- Run python PyMovieRun.py, the program will ask you to input a movie directory
+	- The directory should be the directory where the movies are present.
+	- An HTML file outputs to the same directory as the script and a number of subpages are output to the 'pages' folder without modification to the current code base.
   
   FUTURE RELEASE MODS:
   - Dump data into clean table solution which is live sortable with jquery search.
