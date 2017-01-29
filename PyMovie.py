@@ -7,14 +7,26 @@ import json
 import urllib
 import argparse
 import webbrowser
-import logging
 import re
 import argparse
 import webbrowser
 import sys
 import pandas as pd
+import datetime
 from pymediainfo import MediaInfo
 from libs.html import *
+
+
+# Sets up the logger that is used throughout the program as a means of tracking issues, successes, and metrics for each function.
+
+import logging
+
+logger = logging.getLogger('PyMovie')
+hdlr = logging.FileHandler('PyMovie_log.txt')
+formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
+hdlr.setFormatter(formatter)
+logger.addHandler(hdlr) 
+logger.setLevel("INFO")
 
 
 # This function is used to clean up file names that may have dates, extraneous words in parentheses, etc. By normalizing the names, we hope to have greater success when querying the IMDB API.
@@ -22,6 +34,9 @@ from libs.html import *
 def cleanTitle(filename):
     title = re.sub(r'\.(\w|\d){2,4}$',"",filename) #Remove file extension
     title = re.sub(r'(\(|\[)(.*)(\)|\])',"",title) #Remove anything in parentheses or brackets
+    title = re.sub(r'\:',"",title) #Remove Colons
+    title = re.sub(r'(\s)?\-(\s)?'," ",title) #Remove hyphens for subtitles
+    title = re.sub(r'(\s)[0-9]{1,2}(\s)', ' ',title) #Remove Numeric identifiers
     title = title.strip() #Trim Whitespace
     return title    
 
@@ -37,38 +52,50 @@ def dirClean(directory_name):
 # This function reads the names of files in a provided directory and then runs those files through the IMDB API to collect movie information.  The final output are two .csv files; one for movies that were found through the API and another for files that weren't found.  This function also checks against previous runs of the function to limit the number of API calls.  Finally, this function downloads and stores movie poster artwork for later use in web page construction.
 
 def crawl(source_dir):
+    begin = datetime.datetime.now() #For recording runtime
+    logger.info('crawl() START')
+    
     source_dir = dirClean(source_dir)
-    
     movie_list = os.listdir(source_dir)
-    
     columns = ['ID','title','year','director','actors','plot','genre_primary','genre_other','poster','rating_imdb','rating_metacritic','rating_rotten','filename','filesize','duration','resolution','aspect']
-
+    
+    startposters = len(os.listdir("./pages/images/")) - 4
+    
     #Attempt to load existing data. If it is not there, create empty dataframe instead
     if os.path.exists("movieDF.csv"):
         movieDF = pd.read_csv("movieDF.csv")
+        startrows = len(movieDF)
         if os.path.exists("failedmovieDF.csv"):
             moviefailDF = pd.read_csv("failedmovieDF.csv")
         else:
             moviefailDF = pd.DataFrame(columns = ['title'])
+        #Remove rows from movieDF for movies that no longer appear in the directory
+        for movie in movieDF['filename']:    
+            if movie not in movie_list:
+                movieDF = movieDF[movieDF.filename != movie]
+                logger.info("Removed " + movie + " from movie library.")
+                #Remove photos for movies that no longer appear in the directory
+                title = cleanTitle(movie)
+                if title + '.jpg' in os.listdir("./pages/images/"):
+                    os.remove('./pages/images/' + title + '.jpg')
+                    logger.info('Removed ' + title + '.jpg from poster folder.')
     else: 
         movieDF = pd.DataFrame(columns=columns)
         moviefailDF = pd.DataFrame(columns = ['title'])
-
+        startrows = len(movieDF)
+    
     for movie in movie_list:
                 # The following 2 lines may need to be hacked at dependent of naming
                 # Scheme. Or, a more dynamic solution may be needed to suffice.
                 movieInfo = pd.DataFrame(columns=columns)
                 title = cleanTitle(movie[0:])
-                print(title)
                 
                 #If movie is already in the dataframe than skip to the next iteration of the loop
                 if title in movieDF['title'].values:
                     #If movie poster isn't downloaded, then download it based on stored URL
                     if title + '.jpg' not in os.listdir("./pages/images/"):
-                            filename = title
-                            os.system('wget -O "pages/images/' + filename + '.jpg" ' + movieDF.loc[movieDF['title'] == title, 'poster'].values[0])
+                            os.system('wget -O "pages/images/' + title + '.jpg" ' + movieDF.loc[movieDF['title'] == title, 'poster'].values[0])
                     continue
-
                 
                 try:
                     # Using API from http://www.omdbapi.com/
@@ -111,24 +138,44 @@ def crawl(source_dir):
 
                    
                         movieDF = movieDF.append(movieInfo)
-                        print("Success - " + movie)
-                        logging.info("Success - " + movie)
-                        # Following line added for debugging the OMDBAPI Calls.
-                        print("URL: " + url)
+                        logger.info("Success - " + movie)
+                        logger.info("Success URL: " + url)   
+                        
                     except Exception as e:
                         failMovie = pd.DataFrame(columns=['title'])
                         failMovie.loc[1] = title
                         moviefailDF = moviefailDF.append(failMovie)
-                        print("URL: " + url)
-                        print("Failed - " + movie)
                         print(e)
-                        logging.info("Failed - " + movie)
+                        logger.info("Failed - " + movie)
+                        logger.info("Fail URL: " + url) 
                         pass
                 except Exception as e:
                     print(e)
     movieDF = movieDF.sort_values(by='title')
     movieDF.to_csv('movieDF.csv',index=False)
     moviefailDF.to_csv('failedmovieDF.csv',index=False)
+    
+    #write to Logger
+    run_columns = ['date','time','runtime','movie_delta','movie_total','poster_delta','poster_total']
+    
+    if os.path.exists("runData.csv"):
+        run_data = pd.read_csv("runData.csv")
+    else: 
+        run_data = pd.DataFrame(columns=run_columns)
+        
+    end = datetime.datetime.now()
+    endrows = len(movieDF)
+    endposters = len(os.listdir("./pages/images/")) - 4
+    now = datetime.datetime.now()
+    
+    runInfo = pd.DataFrame(columns=run_columns)
+    runInfo.loc[1] = [now.strftime('%Y-%m-%d'),now.strftime('%H:%M:%S'),end-begin, 0-(startrows-endrows),endrows,
+                     0-(startposters-endposters), endposters]
+    run_data = run_data.append(runInfo)
+    run_data.to_csv('runData.csv',index=False)
+    
+    logger.info('Crawl() function complete')
+    print("crawl() END")
 
 
 # This function creates a website that has a main page that displays movie posters and names and then subpages for each movie that was successfully found through the IMDB API. Added a jquery table that allows the user to sort and search for movies based on title, genre and rating.
