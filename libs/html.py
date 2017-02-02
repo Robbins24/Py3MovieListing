@@ -11,7 +11,14 @@ header = '''
     <link rel="stylesheet" type="text/css" href="foundation/css/jquery.dataTables.min.css"/>
     <script type="text/javascript" charset="utf8" src="foundation/js/jquery-3.1.1.min.js"></script>
     <script type="text/javascript" charset="utf8" src="foundation/js/jquery.dataTables.min.js"></script>
-    
+
+    <script type="text/javascript">
+		function pgload() {
+    		$.get("./foundation/php/load.php");
+    		return false;
+		}
+	</script>
+	
     <script>
    	 	$(document).ready( function () {
    		 	$('#movieTable').DataTable({
@@ -25,7 +32,7 @@ header = '''
     </script>
 </head>
 
-<body style="background: url('libs/grey.png') repeat scroll top left;">	
+<body style="background: url('pages/images/grey.png') repeat scroll top left;" onload="pgload();">	
 	<div class="row">	
       <div class="medium-12 columns">
  
@@ -54,10 +61,25 @@ header_sub = '''
     <link rel="stylesheet" href="../foundation/css/foundation.min.css" />
     <link rel="stylesheet" href="../foundation/css/foundation-icons.css" />
     <link rel="stylesheet" href="../foundation/css/custom.css" />
+    <script type="text/javascript" charset="utf8" src="../foundation/js/jquery-3.1.1.min.js"></script>
+    
+    <script type="text/javascript">
+		function dnld() {
+    		$.get("./../foundation/php/download.php");
+    		return false;
+		}
+	</script>
 
+    <script type="text/javascript">
+		function pgload() {
+    		$.get("./../foundation/php/load.php");
+    		return false;
+		}
+	</script>
+	
 </head>
 
-<body style="background: url('../libs/grey.png') repeat scroll top left;">	
+<body style="background: url('images/grey.png') repeat scroll top left;" onload="pgload();">	
 	<div class="row">	
       <div class="medium-12 columns">
  

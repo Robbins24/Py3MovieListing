@@ -22,7 +22,7 @@ from libs.html import *
 import logging
 
 logger = logging.getLogger('PyMovie')
-hdlr = logging.FileHandler('PyMovie_log.txt')
+hdlr = logging.FileHandler('Data/PyMovie_log.txt')
 formatter = logging.Formatter('%(asctime)s %(levelname)s %(message)s')
 hdlr.setFormatter(formatter)
 logger.addHandler(hdlr) 
@@ -59,14 +59,14 @@ def crawl(source_dir):
     movie_list = os.listdir(source_dir)
     columns = ['ID','title','year','director','actors','plot','genre_primary','genre_other','poster','rating_imdb','rating_metacritic','rating_rotten','filename','filesize','duration','resolution','aspect']
     
-    startposters = len(os.listdir("./pages/images/")) - 4
+    startposters = len(os.listdir("./Site/pages/posters/"))
     
     #Attempt to load existing data. If it is not there, create empty dataframe instead
-    if os.path.exists("movieDF.csv"):
-        movieDF = pd.read_csv("movieDF.csv")
+    if os.path.exists("Data/movieDF.csv"):
+        movieDF = pd.read_csv("Data/movieDF.csv")
         startrows = len(movieDF)
-        if os.path.exists("failedmovieDF.csv"):
-            moviefailDF = pd.read_csv("failedmovieDF.csv")
+        if os.path.exists("Data/failedmovieDF.csv"):
+            moviefailDF = pd.read_csv("Data/failedmovieDF.csv")
         else:
             moviefailDF = pd.DataFrame(columns = ['title'])
         #Remove rows from movieDF for movies that no longer appear in the directory
@@ -76,9 +76,12 @@ def crawl(source_dir):
                 logger.info("Removed " + movie + " from movie library.")
                 #Remove photos for movies that no longer appear in the directory
                 title = cleanTitle(movie)
-                if title + '.jpg' in os.listdir("./pages/images/"):
-                    os.remove('./pages/images/' + title + '.jpg')
+                if title + '.jpg' in os.listdir("./Site/pages/posters/"):
+                    os.remove('./Site/pages/posters/' + title + '.jpg')
                     logger.info('Removed ' + title + '.jpg from poster folder.')
+                if title + '.html' in os.listdir("./Site/pages/"):
+                    os.remove('./Site/pages/' + title + '.html')
+                    logger.info('Removed ' + title + '.html from webpages folder.')
     else: 
         movieDF = pd.DataFrame(columns=columns)
         moviefailDF = pd.DataFrame(columns = ['title'])
@@ -93,8 +96,8 @@ def crawl(source_dir):
                 #If movie is already in the dataframe than skip to the next iteration of the loop
                 if title in movieDF['title'].values:
                     #If movie poster isn't downloaded, then download it based on stored URL
-                    if title + '.jpg' not in os.listdir("./pages/images/"):
-                            os.system('wget -O "pages/images/' + title + '.jpg" ' + movieDF.loc[movieDF['title'] == title, 'poster'].values[0])
+                    if title + '.jpg' not in os.listdir("./Site/pages/posters/"):
+                            os.system('wget -O "Site/pages/posters/' + title + '.jpg" ' + movieDF.loc[movieDF['title'] == title, 'poster'].values[0])
                     continue
                 
                 try:
@@ -116,9 +119,9 @@ def crawl(source_dir):
                         movie_poster = data["Poster"]
                         
                         #If poster file doesn't exist in image directory then download it based on API URL
-                        if title + '.jpg' not in os.listdir("./pages/images/"):
+                        if title + '.jpg' not in os.listdir("./Site/pages/posters/"):
                             filename = title
-                            os.system('wget -O "pages/images/' + filename + '.jpg" ' + movie_poster)
+                            os.system('wget -O "Site/pages/posters/' + filename + '.jpg" ' + movie_poster)
                         
                         movie_rating_imdb = data["imdbRating"]
                         movie_rating_metacritic = data["Metascore"]
@@ -152,27 +155,27 @@ def crawl(source_dir):
                 except Exception as e:
                     print(e)
     movieDF = movieDF.sort_values(by='title')
-    movieDF.to_csv('movieDF.csv',index=False)
-    moviefailDF.to_csv('failedmovieDF.csv',index=False)
+    movieDF.to_csv('Data/movieDF.csv',index=False)
+    moviefailDF.to_csv('Data/failedmovieDF.csv',index=False)
     
     #write to Logger
     run_columns = ['date','time','runtime','movie_delta','movie_total','poster_delta','poster_total']
     
-    if os.path.exists("runData.csv"):
-        run_data = pd.read_csv("runData.csv")
+    if os.path.exists("Data/runData.csv"):
+        run_data = pd.read_csv("Data/runData.csv")
     else: 
         run_data = pd.DataFrame(columns=run_columns)
         
     end = datetime.datetime.now()
     endrows = len(movieDF)
-    endposters = len(os.listdir("./pages/images/")) - 4
+    endposters = len(os.listdir("./Site/pages/posters/"))
     now = datetime.datetime.now()
     
     runInfo = pd.DataFrame(columns=run_columns)
     runInfo.loc[1] = [now.strftime('%Y-%m-%d'),now.strftime('%H:%M:%S'),end-begin, 0-(startrows-endrows),endrows,
                      0-(startposters-endposters), endposters]
     run_data = run_data.append(runInfo)
-    run_data.to_csv('runData.csv',index=False)
+    run_data.to_csv('Data/runData.csv',index=False)
     
     logger.info('Crawl() function complete')
     print("crawl() END")
@@ -181,8 +184,11 @@ def crawl(source_dir):
 # This function creates a website that has a main page that displays movie posters and names and then subpages for each movie that was successfully found through the IMDB API. Added a jquery table that allows the user to sort and search for movies based on title, genre and rating.
 
 def htmlout(movie_file, source_dir):
-    movieDF = pd.read_csv(movie_file)
-    output_file = "movies.html"
+    logger.info('htmlout() START')
+    
+    movieDF = pd.read_csv("Data/" + movie_file)
+    output_file = "Site/movies.html"
+            
     try:
         # Opening and generating final html (for example movies.html) file
         html_file = open(output_file, "w")
@@ -199,8 +205,8 @@ def htmlout(movie_file, source_dir):
 
         for index, row in movieDF.iterrows():
             html_file.write('<tr>')
-            html_file.write('<td><div class="face pic"><a href="file://' + os.getcwd() +'/pages/' + row['title'] + '.html"><img src="pages/images/' + row['title'] + '.jpg" style="height:100%;width:200px;box-shadow: 4px 4px 2px #9a9a9a"></a></div></td>')
-            html_file.write('<td><a href="file://' + os.getcwd() +'/pages/' + row['title'] + '.html" style="font-size:175%">' + row['title'] +'</a></td>')
+            html_file.write('<td><div class="face pic"><a href="./pages/' + row['title'] + '.html"><img src="pages/posters/' + row['title'] + '.jpg" style="height:100%;width:200px;box-shadow: 4px 4px 2px #9a9a9a"></a></div></td>')
+            html_file.write('<td><a href="./pages/' + row['title'] + '.html" style="font-size:175%">' + row['title'] +'</a></td>')
             html_file.write('<td style="font-size:125%; text-align:center">' + row['genre_primary'] +'</td>')
             html_file.write('<td style="font-size:135%; text-align:center">' + str(row['rating_imdb']) +'</td>')
             html_file.write('<td><center>')
@@ -236,23 +242,22 @@ def htmlout(movie_file, source_dir):
         html_file.write('<div class="row">')
         html_file.write('<hr>')
         
-
         html_file.write(footer)
         html_file.close()
+        logger.info("Homepage Complete")
         
         for index, row in movieDF.iterrows():
-            movie_page = "./pages/" + row['title'] + ".html"     
+            movie_page = "./Site/pages/" + row['title'] + ".html"     
             html_file = open(movie_page, "w")
             html_file.write(header_sub)
             
             html_file.write('<div class="fixed"><a href="../movies.html"><img src="images/backarrow.png" style="width:80px"></a></div><div class="row">')
-            html_file.write('<h1 style="color:white; display:inline" class="titleshadow">' + row['title'] + ' (' + str(row['year']) +')</h1>')
+            html_file.write('<h1 style="color:white; display:inline" class="titleshadow" id="movie">' + row['title'] + ' (' + str(row['year']) +')</h1>')
             html_file.write('<hr class="style-four"></div>')
-            
             html_file.write('<div class="row">')
             html_file.write('<div class="medium-5 columns">')
             html_file.write('<div class="panel">')
-            html_file.write('<img src="images/' + row['title'] + '.jpg" style="height:100%;width:375px;box-shadow: 5px 5px 2px #474747"/>')
+            html_file.write('<img src="posters/' + row['title'] + '.jpg" style="height:100%;width:375px;box-shadow: 5px 5px 2px #474747"/>')
             html_file.write('</div></div>')
             html_file.write('<div class="medium-7 columns">')
             html_file.write('<div class="panel">')
@@ -300,19 +305,23 @@ def htmlout(movie_file, source_dir):
             html_file.write("<p><b>Resolution:</b> " + str(row['resolution']) + "</p>")
             html_file.write('<hr>')
             html_file.write(
-                '<a href="file://' + source_dir + row['filename'] + '" download class="button large radius success expand">Download</a>') 
+                '<a href="file://' + dirClean(source_dir) + row['filename'] + '" download class="button large radius success expand" onclick="dnld();">Download</a>') 
             html_file.write("</div></div></div>")
 
             html_file.write(footer_sub)
             html_file.close()
-            
+            logger.info("Success - " + row['title'] + '.html')
+        
         # Opening the browser and presenting the summary html page
         webbrowser.open('file://' + os.path.realpath(output_file))
     except Exception as e:
         print(e)
         print("***** Error. Maybe try to run the script again but bit later? *****")
-        logging.critical('Critical error -- Abort Script')
+        logger.critical('Critical error -- Abort Script')
         sys.exit(0)
-
+        
+    #write to Logger
+    logger.info('htmlout() function complete')
+    print("htmlout() END")
 
 
