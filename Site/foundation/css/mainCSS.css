@@ -1,0 +1,159 @@
+#categoryspan{
+	font-weight:400;
+}
+
+.sidebar {
+  margin:0 0 0 0;
+  padding: 10px;
+  width:100%;
+  background: rgb(34,34,34); /* for IE */
+  background: rgba(34,34,34,0.50);
+}
+
+.sidebar>p{
+	color:white;
+	text-align:center;
+	font-weight:300;
+	opacity:.8;
+}
+   
+select {
+  margin-right: 50px;
+  margin-top:16px;
+  border: 1px solid #111;
+  width: 180px;
+  padding: 5px 5px 5px 5px;
+  font-size: 13px;
+  border: 1px solid #ccc;
+  height: 27px;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background: no-repeat #fff;
+}
+
+.filterButton, button{
+	text-align:center;
+	width:90%;
+	border-radius: 3px;
+	margin:3px;
+	font-size:.9em;
+	font-weight:300;
+	padding: 3;
+	color:white;
+	opacity:.9;
+}
+  button:active {
+    -webkit-transition: none;
+    transition: none; }
+
+.status{
+	position:absolute;
+	font-size:1.5em;
+	padding-top:8px;
+	margin-left:90px;
+	font-weight:300;
+	color:white;
+	display:inline;
+}
+
+.sortText{
+	float:right; 
+	color:white;
+	font-weight:400;
+	margin-top:20px; 
+	margin-right:7px
+}
+
+/*B&W*/
+.face:hover {
+  animation: shake 0.82s cubic-bezier(.36,.07,.19,.97) both;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+}
+
+@keyframes shake {
+  10%, 90% {
+    transform: translate3d(-1px, 0, 0);
+  }
+  
+  20%, 80% {
+    transform: translate3d(2px, 0, 0);
+  }
+
+  30%, 50%, 70% {
+    transform: translate3d(-3px, 0, 0);
+  }
+
+  40%, 60% {
+    transform: translate3d(3px, 0, 0);
+  }
+}
+
+.status{
+	position:absolute;
+	font-size:1.5em;
+	padding-top:8px;
+	margin-left:90px;
+	font-weight:300;
+	color:white;
+	display:inline;
+}
+
+.sortText{
+	float:right; 
+	color:white;
+	font-weight:400;
+	margin-top:20px; 
+	margin-right:7px
+}
+
+
+@media screen and (max-width: 1150px) {
+	.status{
+		font-size:1.2em;
+		padding-top:10px;
+	}
+}
+
+@media screen and (max-width: 1075px) {
+	.status{
+		font-size:1em;
+		padding-top:13px;
+	}
+	select {
+	  width: 140px;
+	  font-size: 11px;
+	}
+}
+
+.titletext, .titletext>a{
+	color: white;
+	font-size: 1.1em;
+	padding: 4px 0;
+	text-align: center;
+	font-family:"Helvetica Neue",Helvetica,Roboto,Arial,sans-serif;
+}
+
+.titlediv {
+	background-color: rgba(112, 128, 144, 0.7);
+	width:100%;
+	height:35px;
+	top: 89%;
+    left: 0;
+	position: absolute;
+    z-index: 1;
+}
+
+
+@media screen and (max-width: 1200px) {
+	.titletext, .titletext>a{
+		font-size: 1em;
+		padding: 2px 0;
+	}
+	.titlediv {
+		height:25px;
+		top: 89%;
+	}
+}

@@ -1,22 +1,23 @@
 
 # PyMovie.py
-
 import os
+import sys
 import codecs
 import json
 import urllib
 import argparse
 import webbrowser
 import re
-import argparse
-import webbrowser
+from unidecode import unidecode
 import sys
 import pandas as pd
 import datetime
-from pymediainfo import MediaInfo
+import numpy as np
 from libs.html import *
 
 
+# ### Set Up Logging
+# 
 # Sets up the logger that is used throughout the program as a means of tracking issues, successes, and metrics for each function.
 
 import logging
@@ -29,7 +30,10 @@ logger.addHandler(hdlr)
 logger.setLevel("INFO")
 
 
-# This function is used to clean up file names that may have dates, extraneous words in parentheses, etc. By normalizing the names, we hope to have greater success when querying the IMDB API.
+# ### Clean Movie Titles
+# These three functions used to clean up file names that may have dates, extraneous words in parentheses, etc. By normalizing the names, we hope to have greater success when querying the IMDB API.  These different styles of normalizing are fed into the API through the getOMDB() function.
+# 
+# *cleanTitle3()* is used as a helper function for naming of poster files and for text output.
 
 def cleanTitle(filename):
     title = re.sub(r'\.(\w|\d){2,4}$',"",filename) #Remove file extension
@@ -38,9 +42,67 @@ def cleanTitle(filename):
     title = re.sub(r'(\s)?\-(\s)?'," ",title) #Remove hyphens for subtitles
     title = re.sub(r'(\s)[0-9]{1,2}(\s)', ' ',title) #Remove Numeric identifiers
     title = title.strip() #Trim Whitespace
-    return title    
+    return title  
+
+def cleanTitle2(filename):
+    title = re.sub(r'\.(\w|\d){2,4}$',"",filename) #Remove file extension
+    title = re.sub(r'(\(|\[)(.*)(\)|\])',"",title) #Remove anything in parentheses or brackets
+    title = re.sub(r'\:',"",title) #Remove Colons
+    title = re.sub(r'[\w\s]*(\s)?\-(\s)?',"",title) #Submit only subtitles
+    title = title.strip() #Trim Whitespace
+    return title
 
 
+def cleanTitle3(filename):
+    title = re.sub(r'\.(\w|\d){2,4}$',"",filename) #Remove file extension
+    return title
+
+
+# ### Build URL for API
+# This function determines whether the filename contains a release year and, if so, includes the year as a parameter when searching the API. If it does not, only the title is used.
+
+def cleanURL(filename, title):
+    year = re.search(r'(\[|\()([0-9]{4})(\]|\))',filename)
+    if year:
+        year= re.sub(r"(\[|\(|\]|\))","", year.group(0))
+    else:
+        year=""
+    if not year == "":
+        url = "http://www.omdbapi.com/?t=" + urllib.parse.quote(title) + '&y=' + urllib.parse.quote(year) + '&tomatoes=true&type=movie'
+    else:
+        url = "http://www.omdbapi.com/?t=" + urllib.parse.quote(title) + '&tomatoes=true&type=movie'
+    return url
+
+
+# ### Retrieving From OMDB
+# This function uses two of the cleantitleX() functions to normalize the movie title, feed it into the API, and, if successful, download the resulting JSON.  The API always passes back a parameter named "Response" that is True if the query returned a result and False if it did not. The function is set up to only try further responses if the intial response doesn't work. There is room for improvement in this code and I will work to clean it up as time permits.
+
+def getOMDB(movieTitle):
+    
+    #First Attempt
+    title = cleanTitle(movieTitle)
+    url = cleanURL(movieTitle, title)
+    reader = codecs.getreader("utf-8")
+    data = json.load(reader(urllib.request.urlopen(url)))
+
+    if data["Response"] == "True":
+        return data
+    else:
+        #Second Attempt
+        title = cleanTitle2(movieTitle)
+        url = cleanURL(movieTitle, title)
+        reader = codecs.getreader("utf-8")
+        data = json.load(reader(urllib.request.urlopen(url)))
+
+        if data["Response"] == "True":
+            return data
+        else:
+            print("exit")
+            return()
+
+
+# ### Helper Function: Add '/' to end of directory
+# 
 # This function takes a directory name and ensure it ends with a slash (i.e., "/"). This keeps the later functions from throwing errors.
 
 def dirClean(directory_name):
@@ -49,6 +111,27 @@ def dirClean(directory_name):
     return(directory_name)
 
 
+# ### Helper Function: Validate User Input
+# In the *crawl()* function, users are asked to enter a number. This function validates whether an acceptable input was entered.
+
+def validateInput(response):
+    if response == "":
+        print("Please Enter A Value")
+        return(False)
+    if response.isdigit():
+        response = int(response)
+        if response > 0 and response < 4:
+            return(True)          
+        else:
+            print("Please Enter One of the Values Shown")
+            return(False)
+    else:
+        print("Please Enter a Number")
+        return(False)
+
+
+# ### Data Collection Function
+# 
 # This function reads the names of files in a provided directory and then runs those files through the IMDB API to collect movie information.  The final output are two .csv files; one for movies that were found through the API and another for files that weren't found.  This function also checks against previous runs of the function to limit the number of API calls.  Finally, this function downloads and stores movie poster artwork for later use in web page construction.
 
 def crawl(source_dir):
@@ -57,7 +140,7 @@ def crawl(source_dir):
     
     source_dir = dirClean(source_dir)
     movie_list = os.listdir(source_dir)
-    columns = ['ID','title','year','director','actors','plot','genre_primary','genre_other','poster','rating_imdb','rating_metacritic','rating_rotten','filename','filesize','duration','resolution','aspect']
+    columns = ['ID','title','year','duration','release_date','mpaa_rating','director','actors','plot','genre','poster','rating_imdb','rating_metacritic','rating_rotten','awards','boxoffice','filename','filesize']
     
     startposters = len(os.listdir("./Site/pages/posters/"))
     
@@ -87,6 +170,26 @@ def crawl(source_dir):
         moviefailDF = pd.DataFrame(columns = ['title'])
         startrows = len(movieDF)
     
+    ############ Experimenting with Optional Manual Search ################
+    print("Posters, descriptions, and other metadata will now be downloaded for your movies. This script will attempt to match the filenames you gave your movies to the omdbapi.com API.  This is not an exact process and may result in errors or failures to match. Below you are given two options for completing this search.")
+    print("")
+    print("*  The 'Manual' search will ask you to confirm whether the omdb API match is correct and, if not, will ask prompt you to enter a new title.")
+    print("*  The 'Automatic' search will use whatever movie is returned by the omdb API.")
+    print("")
+    print("Enter the number of the search mode you would like to use and press enter.")
+    print("1. Manual Search")
+    print("2. Automatic Search")
+    print("3. Exit")
+
+    valid = False
+    while valid == False:
+        movieResponse = input('')
+        valid = validateInput(movieResponse)
+    print("--------------------------------------------------")               
+            
+    #######################################################################
+    
+    
     for movie in movie_list:
                 # The following 2 lines may need to be hacked at dependent of naming
                 # Scheme. Or, a more dynamic solution may be needed to suffice.
@@ -94,33 +197,82 @@ def crawl(source_dir):
                 title = cleanTitle(movie[0:])
                 
                 #If movie is already in the dataframe than skip to the next iteration of the loop
-                if title in movieDF['title'].values:
+                if movie in movieDF['filename'].values:
                     #If movie poster isn't downloaded, then download it based on stored URL
-                    if title + '.jpg' not in os.listdir("./Site/pages/posters/"):
-                            os.system('wget -O "Site/pages/posters/' + title + '.jpg" ' + movieDF.loc[movieDF['title'] == title, 'poster'].values[0])
+                    if cleanTitle3(movie) + '.jpg' not in os.listdir("./Site/pages/posters/"):
+                        print(movie)
+                        print(pd.isnull(movieDF.loc[movieDF['filename'] == movie, 'poster'].values[0]))
+                        if not pd.isnull(movieDF.loc[movieDF['filename'] == movie, 'poster'].values[0]):
+                            os.system('wget -O "Site/pages/posters/' + cleanTitle3(movie) + '.jpg" ' + movieDF.loc[movieDF['filename'] == movie, 'poster'].values[0])
                     continue
                 
-                try:
-                    # Using API from http://www.omdbapi.com/
-                    url = "http://www.omdbapi.com/?t=" + urllib.parse.quote(title) + '&tomatoes=true'
-                    # Now dowloading and parsing the results as json file so we can work on it locally
-                    reader = codecs.getreader("utf-8")
-                    data = json.load(reader(urllib.request.urlopen(url)))
+                try:                   
+                    if movie.startswith("."):
+                        continue
+                        
+                    ############ Experimenting with Optional Manual Search ################
+                    if movieResponse == "1":
+                        movieLoop = "2"
+                        searchmovie = movie
+                        while movieLoop == "2":
+                            data = getOMDB(searchmovie)
+                            try:
+                                print("")
+                                print("Looking Up:  " + searchmovie)
+                                print("--> " + data["Title"] + " (" + data["Year"].split(" ")[0] +")")
+                                print("-->" + data["Plot"])
+                                print("")
+                                print("Is this the movie you wanted?")
+                                print("1. Yes")
+                                print("2. No")
+                                print("3. Exit Metadata Search")
+                                valid = False
+                                while valid == False:
+                                    movieLoop = input('Is this the movie you wanted?:')
+                                    valid = validateInput(movieLoop)
+                            except:
+                                print("")
+                                print("--> Movie Not Found")
+                                movieLoop = "2"
+
+                            if movieLoop == "3":
+                                data=[]
+                                movieResponse = "3"
+                                break
+                            
+                            if movieLoop== "2":
+                                print("")
+                                searchmovie = input('Try a different title (or type "next" to move on):')
+
+                            if movieLoop == "1" or searchmovie == "next":
+                                print("--------------------------------------------------")
+                                break
+                    if movieResponse == "2":
+                            data = getOMDB(movie)
+                            print("Searching for:  " + cleanTitle3(movie))
+                    if movieResponse == "3":
+                        continue
+                    #######################################################################
+
 
                     try:
                         movie_imdbID = data["imdbID"]
-                        movie_title = data["Title"]
-                        movie_year = data["Year"]
-                        movie_director = data["Director"]
-                        movie_actors = data["Actors"]
-                        movie_plot = data["Plot"]
-                        movie_genre_1 = data["Genre"].split(",")[0]
-                        movie_genre_2 = data["Genre"].split(",")[1:]
+                        movie_title = unidecode(data["Title"])
+                        movie_year = data["Year"].split(" ")[0]
+                        movie_duration = data["Runtime"]
+                        movie_release = data["Released"]
+                        movie_director = unidecode(data["Director"])
+                        movie_actors = unidecode(data["Actors"])
+                        movie_plot = unidecode(data["Plot"])
+                        movie_genre = data["Genre"]
                         movie_poster = data["Poster"]
+                        movie_rating = data["Rated"]
+                        movie_awards = data["Awards"]
+                        movie_money = data["BoxOffice"]
                         
                         #If poster file doesn't exist in image directory then download it based on API URL
-                        if title + '.jpg' not in os.listdir("./Site/pages/posters/"):
-                            filename = title
+                        if cleanTitle3(movie) + '.jpg' not in os.listdir("./Site/pages/posters/"):
+                            filename = cleanTitle3(movie)
                             os.system('wget -O "Site/pages/posters/' + filename + '.jpg" ' + movie_poster)
                         
                         movie_rating_imdb = data["imdbRating"]
@@ -128,21 +280,16 @@ def crawl(source_dir):
                         movie_rating_rotten = data["tomatoMeter"]
                         movie_filename = movie
                         
-                        media_info = MediaInfo.parse(source_dir + movie)
+                        movie_filesize = os.path.getsize(source_dir + movie)                   
+                        
 
-                        movie_filesize = media_info.tracks[0].other_file_size[0]
-                        movie_duration = media_info.tracks[0].other_duration[2]
-                        movie_resolution = str(media_info.tracks[1].sampled_width + " * " + media_info.tracks[1].sampled_height)
-                        movie_aspect = media_info.tracks[1].other_display_aspect_ratio[0]
-
-                        movieInfo.loc[1] = [movie_imdbID, movie_title, movie_year, movie_director, movie_actors, movie_plot, movie_genre_1,movie_genre_2,
-                                                  movie_poster, movie_rating_imdb, movie_rating_metacritic, movie_rating_rotten,
-                                            movie_filename, movie_filesize, movie_duration, movie_resolution, movie_aspect]
-
-                   
+                        movieInfo.loc[1] = [movie_imdbID, movie_title, movie_year, movie_duration, movie_release, movie_rating, movie_director, movie_actors, 
+                                            movie_plot, movie_genre,movie_poster, movie_rating_imdb, movie_rating_metacritic, 
+                                            movie_rating_rotten, movie_awards, movie_money, movie_filename, movie_filesize]
+                        
                         movieDF = movieDF.append(movieInfo)
+                        
                         logger.info("Success - " + movie)
-                        logger.info("Success URL: " + url)   
                         
                     except Exception as e:
                         failMovie = pd.DataFrame(columns=['title'])
@@ -150,7 +297,6 @@ def crawl(source_dir):
                         moviefailDF = moviefailDF.append(failMovie)
                         print(e)
                         logger.info("Failed - " + movie)
-                        logger.info("Fail URL: " + url) 
                         pass
                 except Exception as e:
                     print(e)
@@ -181,6 +327,8 @@ def crawl(source_dir):
     print("crawl() END")
 
 
+# ### UI Building Function
+# 
 # This function creates a website that has a main page that displays movie posters and names and then subpages for each movie that was successfully found through the IMDB API. Added a jquery table that allows the user to sort and search for movies based on title, genre and rating.
 
 def htmlout(movie_file, source_dir):
@@ -188,85 +336,101 @@ def htmlout(movie_file, source_dir):
     
     movieDF = pd.read_csv("Data/" + movie_file)
     output_file = "Site/movies.html"
-            
+    
+    movieDF['genre_all'] = None
+    for row in range(0,movieDF.shape[0]):
+        movieDF.ix[row, 'genre_all'] = str(movieDF.ix[row, 'genre'].lower().split())
+        movieDF.ix[row, 'genre_all'] = re.sub(",'",'"',movieDF.ix[row, 'genre_all'])
+        movieDF.ix[row, 'genre_all'] = re.sub("'",'"',movieDF.ix[row, 'genre_all'])
+    
     try:
         # Opening and generating final html (for example movies.html) file
         html_file = open(output_file, "w")
         html_file.write(header)
-        html_file.write('<div class="medium-12 columns">')
-        html_file.write('<h1 style="color:white" class="titleshadow">PyMovie Share</h1>')
-        html_file.write('<hr class="style-four"></div>')
-        html_file.write('<div class="row">')
         
-        #Write Table Data
-        html_file.write('<table id="movieTable" class="display" cellspacing="0" width="100%">')
-        html_file.write('<thead style="font-size:125%"><tr><th rowspan="2"></th><th rowspan="2">Title</th><th rowspan="2">Genre</th><th colspan="3"><center>Ratings</center></th><th rowspan="2">Actors</th></tr>')
-        html_file.write('<tr><th>IMDB</th><th>Metacritic</th><th>Rotten Tomatoes</th></tr></thead><tbody>')
+        #Add Button Group
+        allgenre = []
+        for movie in movieDF['genre']:
+            allgenre += movie.split(",")
+        allgenre = np.sort(list(set(allgenre)))
+        
+        for genre in allgenre:
+            html_file.write('<button class="filterButton" data-group="' + genre.lower().strip() + '">' + genre.strip() + '</button>')
+        html_file.write('</div></div></div>')
+        
+        #Add Content Sections
+        html_file.write('<div class ="col-md-11" style="padding-bottom:30px">')
+        html_file.write('<section id="demo"><center>')
+        html_file.write('<div class="container">')
+        html_file.write('<div id="grid" class="row my-shuffle-container">')
 
         for index, row in movieDF.iterrows():
-            html_file.write('<tr>')
-            html_file.write('<td><div class="face pic"><a href="./pages/' + row['title'] + '.html"><img src="pages/posters/' + row['title'] + '.jpg" style="height:100%;width:200px;box-shadow: 4px 4px 2px #9a9a9a"></a></div></td>')
-            html_file.write('<td><a href="./pages/' + row['title'] + '.html" style="font-size:175%">' + row['title'] +'</a></td>')
-            html_file.write('<td style="font-size:125%; text-align:center">' + row['genre_primary'] +'</td>')
-            html_file.write('<td style="font-size:135%; text-align:center">' + str(row['rating_imdb']) +'</td>')
-            html_file.write('<td><center>')
+            title = cleanTitle(row['filename'])
             
-            if row['rating_metacritic'] <= 20: 
-                html_file.write('<span class="metalow">' + str(int(row['rating_metacritic']))+'</span></center></td>')
-            elif 20 < row['rating_metacritic'] <= 40: 
-                html_file.write('<span class="metamedlow">' + str(int(row['rating_metacritic']))+'</span></center></td>')   
-            elif 40 < row['rating_metacritic'] <= 60: 
-                html_file.write('<span class="metamedium">' + str(int(row['rating_metacritic']))+'</span></center></td>')    
-            elif 60 < row['rating_metacritic'] <= 80: 
-                html_file.write('<span class="metamedhigh">' + str(int(row['rating_metacritic']))+'</span></center></td>')    
-            elif row['rating_metacritic'] > 80: 
-                html_file.write('<span class="metahigh">' + str(int(row['rating_metacritic']))+'</span></center></td>') 
+            html_file.write("<figure name='cover' class='col-2@md col-2@sm col-2@xs picture-item' data-groups='" + row['genre_all'] + "' data-date-created='" + str(row['year']) + "-06-01' data-title='" + row['title'] + "'>")
+            html_file.write('<div class="picture-item__inner">')
+            html_file.write('<div class="aspect aspect--2x3">')
+            html_file.write('<div class="aspect__inner">')
+            if cleanTitle3(row['filename']) + '.jpg' in os.listdir("./Site/pages/posters/"):
+                html_file.write('<a href="./pages/'+ title + '.html"><img src="pages/posters/' + cleanTitle3(row['filename']) + '.jpg" class="face pic"/></a>')
             else:
-                html_file.write('<span class="metaNA">NA</span></center></td>')
-            
-            html_file.write('<td style="font-size:135%; text-align:center">' + str(row['rating_rotten']) + ' ')
-            
-            if row['rating_rotten'] < 60: 
-                html_file.write('<img src="pages/images/rottenicon.png" style="width:30px; display:inline"></div></td>') 
-            elif row['rating_rotten'] >= 60: 
-                html_file.write('<img src="pages/images/freshicon.png" style="width:30px; display:inline"></div></td>')
-            else:
-                html_file.write('</td></tr>')
-        
-            html_file.write('<td>' + row['actors'] +'</td></tr>')
-        
-        #Close Table
-        html_file.write('</tbody></table>')
-        
-        # Generate some stats at on the bottom of the html page
-        html_file.write('<div class="row">')
-        html_file.write('<hr>')
+                html_file.write('<a href="./pages/'+ title + '.html"><img src="pages/images/NA.jpg" class="face pic"/></a>')
+            html_file.write('</div>')
+            html_file.write('</div>')
+            html_file.write('<div class="titlediv" style="height:25px;top: 87%;">')
+            html_file.write('<figcaption name="title" class="titletext" style="font-size:0.9em"><a href="./pages/' + title + '.html" target="_blank">' + title + '</a></figcaption>')
+            html_file.write('</div>')
+            html_file.write('</div>')
+            html_file.write('</figure>')
         
         html_file.write(footer)
         html_file.close()
         logger.info("Homepage Complete")
         
+        #Create SubPages        
         for index, row in movieDF.iterrows():
-            movie_page = "./Site/pages/" + row['title'] + ".html"     
+            title = cleanTitle(row['filename'])
+            
+            movie_page = "./Site/pages/" + title + ".html"     
             html_file = open(movie_page, "w")
             html_file.write(header_sub)
             
-            html_file.write('<div class="fixed"><a href="../movies.html"><img src="images/backarrow.png" style="width:80px"></a></div><div class="row">')
-            html_file.write('<h1 style="color:white; display:inline" class="titleshadow" id="movie">' + row['title'] + ' (' + str(row['year']) +')</h1>')
-            html_file.write('<hr class="style-four"></div>')
-            html_file.write('<div class="row">')
-            html_file.write('<div class="medium-5 columns">')
-            html_file.write('<div class="panel">')
-            html_file.write('<img src="posters/' + row['title'] + '.jpg" style="height:100%;width:375px;box-shadow: 5px 5px 2px #474747"/>')
-            html_file.write('</div></div>')
-            html_file.write('<div class="medium-7 columns">')
-            html_file.write('<div class="panel">')
-            html_file.write('<div class="medium-4 columns" style="border-right:1px solid #c7c9cc;height:90px">')
-            html_file.write('<center><p style="font-size:125%; padding-bottom: 20px"><b>IMDB</b><br> ' + str(row['rating_imdb']) + '/10</p></center>')
-            html_file.write('<vr>')
-            html_file.write('</div><div class="medium-4 columns" style="border-right:1px solid #c7c9cc;height:100px">')
-            html_file.write('<center><div style="font-size:125%; padding-bottom: 10px"><b>Metacritic</b></div>')
-                            
+            if cleanTitle3(row['filename']) + '.jpg' in os.listdir("./Site/pages/posters/"):
+                html_file.write('<img src="posters/' + cleanTitle3(row['filename']) + '.jpg" class="img-bk"/>')
+            html_file.write('<a href="../movies.html"><img src="images/backarrow.png" class="back-button"/></a>')
+                
+            html_file.write('<div id="content">')
+            html_file.write('<div class="col-md-4">')
+            if cleanTitle3(row['filename']) + '.jpg' in os.listdir("./Site/pages/posters/"):
+                html_file.write('<img src="posters/' + cleanTitle3(row['filename']) + '.jpg" class="coverart"/>')
+            else:
+                html_file.write('<img src="images/NA.jpg" class="coverart" />')
+                
+            html_file.write('</div>')
+            html_file.write('<div class ="col-md-8" style="padding-left:30px; padding-right:30px"><br>')
+            html_file.write('<p class="titleshadow" id="movie">' + str(row['title']) + '</p><p class="movieyear" id="year">' + str(row['year']) + '</p>') 
+            html_file.write('<hr class="title-border">') 
+            html_file.write('<p class="runtime" id="runtime">' + str(row['duration']) + '</p><p class="genres" id="genre">' + str(row['genre']) +'</p><br><br>')
+            
+            html_file.write('<div class ="col-md-9"><br>')
+            html_file.write('<p class="elements">Plot: </p> <p class="desctext">' + str(row['plot']) + '</p><br><br>')
+            html_file.write('<p class="elements">Actors: </p> <p class="desctext">' + str(row['actors']) + '</p><br><br>')
+            html_file.write('<p class="elements">Director: </p> <p class="desctext">' + str(row['director']) + '</p><br><br>')
+            html_file.write('<p class="elements">Release Date: </p> <p class="desctext">' + str(row['release_date']) + '</p>')
+            
+            html_file.write('<hr>')
+            html_file.write('<a href="file://' + dirClean(source_dir) + row['filename'] + '" download><img src="images/download.png" class="icons"></a>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="file://' + dirClean(source_dir) + row['filename'] + '"><img src="images/play.png" class="icons"></a>')
+              
+            html_file.write('</div>')
+            html_file.write('<div class ="col-md-3"><br>')
+            
+            #Ratings Pane
+            ##MPAA Rating
+            html_file.write('<center><span class="mpaa">' + str(row['mpaa_rating']) + '</span></center><hr>')
+            ##IMDB Rating
+            html_file.write('<center><p class="rating" style="padding-bottom: 2px"><b>IMDB</b><br>' + str(row['rating_imdb']) + '/10</p></center><hr>')
+            ##Metacritic Rating
+            html_file.write('<center><p class="rating" style="padding-bottom: 2px"><b>Metacritic</b></p>')           
             if row['rating_metacritic'] <= 20: 
                 html_file.write('<span class="metalow">' + str(int(row['rating_metacritic']))+'</span></center>')
             elif 20 < row['rating_metacritic'] <= 40: 
@@ -278,44 +442,29 @@ def htmlout(movie_file, source_dir):
             elif row['rating_metacritic'] > 80: 
                 html_file.write('<span class="metahigh">' + str(int(row['rating_metacritic']))+'</span></center>') 
             else:
-                html_file.write('<span class="metaNA">NA</p></center>')
+                html_file.write('<span class="metaNA">NA</span></center>')
+            html_file.write('<hr>')
             
-            html_file.write('</div>')
-            html_file.write('<center><p style="font-size:125%; padding-bottom: 20px"><b>Rotten Tomatoes</b><br> ' + str(row['rating_rotten']) + ' ')
-            
+            ##Rotten Tomatoes
+            html_file.write('<center><p class="rating" style="padding-bottom: 2px"><b>Rotten Tomatoes</b><br>' + str(row['rating_rotten']) + " ")
             if row['rating_rotten'] < 60: 
                 html_file.write('<img src="images/rottenicon.png" style="width:30px; display:inline"></p></center>') 
             elif row['rating_rotten'] >= 60: 
                 html_file.write('<img src="images/freshicon.png" style="width:30px; display:inline"></p></center>')
             else:
-                html_file.write('</td></tr>')
+                html_file.write('</p></center>')
 
-            html_file.write('<hr>')
-            
-            html_file.write('<p><b>Plot:</b> ' + str(row['plot']) + '</p>')
-            html_file.write('<p><b>Actors:</b> ' + str(row['actors']) + '</p>')
-            html_file.write('<p><b>Director:</b> ' + str(row['director']) + '</p>')
-            
-            html_file.write('<hr>')
-            html_file.write('<div class="medium-4 columns">')
-            html_file.write("<p><b>Runtime:</b> " + str(row['duration']) + "</p>")
-            html_file.write('</div><div class="medium-4 columns">')
-            html_file.write("<p><b>Filesize:</b> " + str(row['filesize']) + "</p>")
-            html_file.write('</div>')
-            html_file.write("<p><b>Resolution:</b> " + str(row['resolution']) + "</p>")
-            html_file.write('<hr>')
-            html_file.write(
-                '<a href="file://' + dirClean(source_dir) + row['filename'] + '" download class="button large radius success expand" onclick="dnld();">Download</a>') 
-            html_file.write("</div></div></div>")
+            html_file.write('</div></div></div>')
 
             html_file.write(footer_sub)
             html_file.close()
-            logger.info("Success - " + row['title'] + '.html')
+            logger.info("Success - " + title + '.html')
         
         # Opening the browser and presenting the summary html page
         webbrowser.open('file://' + os.path.realpath(output_file))
     except Exception as e:
         print(e)
+        traceback.print_tb(e)
         print("***** Error. Maybe try to run the script again but bit later? *****")
         logger.critical('Critical error -- Abort Script')
         sys.exit(0)
@@ -323,5 +472,4 @@ def htmlout(movie_file, source_dir):
     #write to Logger
     logger.info('htmlout() function complete')
     print("htmlout() END")
-
 
